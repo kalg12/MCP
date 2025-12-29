@@ -1,88 +1,37 @@
 import { z } from "zod";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
 
-const server = new Server(
-  {
-    name: "mcp-ts-demo",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+/**
+ * Claude Desktop expects clean JSON-RPC on stdout.
+ * Never console.log to stdout. Use console.error only if needed.
+ */
 
-const SayHelloSchema = z.object({
-  name: z.string().min(1, "name is required"),
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
+  process.exit(1);
 });
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "say_hello",
-        description: "Say hello to a person",
-        inputSchema: {
-          type: "object",
-          properties: {
-            name: { type: "string" },
-          },
-          required: ["name"],
-        },
-      },
-    ],
-  };
+process.on("unhandledRejection", (err) => {
+  console.error("unhandledRejection:", err);
+  process.exit(1);
 });
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const toolName = request.params.name;
-  const args = request.params.arguments ?? {};
+const server = new McpServer({
+  name: "mcp-ts-demo",
+  version: "1.0.0",
+});
 
-  if (toolName === "say_hello") {
-    const parsed = SayHelloSchema.safeParse(args);
-
-    if (!parsed.success) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: `Invalid arguments: ${parsed.error.issues
-              .map((i) => i.message)
-              .join(", ")}`,
-          },
-        ],
-      };
-    }
-
-    const { name } = parsed.data;
-
+server.tool(
+  "say_hello",
+  "Say hello to a person",
+  { name: z.string().min(1) },
+  async ({ name }) => {
     return {
-      content: [
-        {
-          type: "text",
-          text: `Hello ${name}.`,
-        },
-      ],
+      content: [{ type: "text", text: `Hello ${name}.` }],
     };
   }
-
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: `Unknown tool: ${toolName}`,
-      },
-    ],
-  };
-});
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
